@@ -48,47 +48,80 @@ ENUM(DType) {
 
 ENUM(SubOPCode) {
     // 暂时先放GEMM相关的指令，其他指令后续再加
-    GEMM = 0b1110000,
-    TACCGET = 0b1110001,
+    GEMM = 0x70,
+    TACCGET = 0x71,
 };
 
-STRUCT(TOPRand) {
-    DType dtype;
-    Int<VTR_WID> vidx;
-    Int<2> vmask;
-    bool is_temp;
-    bool is_zero;
-    bool valid;
+ENUM(TOPRandType) {
+    INVALID = 0x00,
+    TREG = 0x01,
+    TTEMP = 0x02,
+    TACC = 0x03,
+    TMASK = 0x04,
 };
 
 STRUCT(TInstRaw) {
-    SubOPCode subopcode;
-    Int<7> funct7;
+    Int<8> subopcode;
     Int<96> args;
-    TOPRand trd;
-    TOPRand trs1;
-    TOPRand trs2;
-    bool acc_valid;
-    bool acc_new;
+    Int<5> funct5;
+    Int<2> mask;
+
+    DType rd_datatype;
+    DType rs1_datatype;
+    DType rs2_datatype;
+
+    TOPRandType rd_type;
+    TOPRandType rs1_type;
+    TOPRandType rs2_type;
+
+    Int<VTR_WID> rd_vidx;
+    Int<VTR_WID> rs1_vidx;
+    Int<VTR_WID> rs2_vidx;
 };
 
 STRUCT(TInst) {
-    SubOPCode subopcode;
-    Int<5> funct5;
+    Int<8> subopcode;
     Int<96> args;
-    TOPRand trd;
-    TOPRand trs1;
-    TOPRand trs2;
+    Int<5> funct5;
     Int<2> mask;
-    bool acc_valid;
-    bool acc_new;
 
-    Int<PTR_WID*4> ptrd;
-    Int<PTR_WID*4> ptrs1;
-    Int<PTR_WID*4> ptrs2;
-    Int<PTEMP_WID> ptemp;
-    Int<PTEMP_WID> ptempd;
+    DType rd_datatype;
+    DType rs1_datatype;
+    DType rs2_datatype;
+
+    TOPRandType rd_type;
+    TOPRandType rs1_type;
+    TOPRandType rs2_type;
+
+    Int<VTR_WID> rd_vidx;
+    Int<VTR_WID> rs1_vidx;
+    Int<VTR_WID> rs2_vidx;
+
+    Int<PTR_WID> rd_pidx[4];
+    Int<PTR_WID> rs1_pidx[4];
+    Int<PTR_WID> rs2_pidx[4];
+
     Int<PMASK_WID> pmask;
-    Int<PMASK_WID> pmaskd;
-    Int<PACC_WID> pacc;
+};
+
+STRUCT(RNMMainInput) {
+    Int<VTR_WID> vtrs[8];
+    Int<VTR_WID> vtrd[4];
+    Int<8> vtrs_valid;
+    Int<4> vtrd_valid;
+};
+
+STRUCT(RNMMainOutput) {
+    Int<PTR_WID> vtrs[8];
+    Int<PTR_WID> vtrd[4];
+};
+
+STRUCT(RenameRetireRead) {
+    Int<PTR_WID> pidx[8];
+    Int<8> valid;
+};
+
+STRUCT(RenameRetireWrite) {
+    Int<PTR_WID> pidx[4];
+    Int<4> valid;
 };
