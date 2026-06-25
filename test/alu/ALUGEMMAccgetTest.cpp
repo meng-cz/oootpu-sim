@@ -5,7 +5,8 @@
 #include <defhelper.hpp>
 #include <run.hpp>
 
-#include "../../src/header.hpp"
+#include "../../src/header/alu.hpp"
+#include "../../src/header/gemm.hpp"
 
 TOP("../../src/alu/ALUGEMMTop.hpp");
 PROJECT("../../src");

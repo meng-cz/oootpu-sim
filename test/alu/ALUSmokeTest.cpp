@@ -4,7 +4,7 @@
 #include <defhelper.hpp>
 #include <run.hpp>
 
-#include "../../src/header.hpp"
+#include "../../src/header/alu.hpp"
 
 TOP("../../src/alu/ALU.hpp");
 PROJECT("../../src");

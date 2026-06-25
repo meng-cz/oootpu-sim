@@ -4,7 +4,7 @@
 #include <cassert>
 #include <cstdint>
 
-#include "header.hpp"
+#include "../header/rename.hpp"
 
 // This module is simulation-only and intentionally not synthesizable.
 // It models rename behavior with software data structures so each cycle touches

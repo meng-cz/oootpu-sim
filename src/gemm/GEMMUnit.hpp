@@ -1,6 +1,6 @@
 #pragma once
 
-#include "header.hpp"
+#include "../header/gemm.hpp"
 #include "defhelper.hpp"
 
 // 这个模块不可综合，没有细化具体的流水线层级，只做了相关的延迟模拟

@@ -3,7 +3,8 @@
 #include <cassert>
 #include <defhelper.hpp>
 
-#include "../header.hpp"
+#include "../header/alu.hpp"
+#include "../header/gemm.hpp"
 #include "ALU.hpp"
 #include "../gemm/GEMMUnit.hpp"
 

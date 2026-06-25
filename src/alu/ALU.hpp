@@ -4,7 +4,7 @@
 #include <cassert>
 #include <cstdint>
 
-#include "header.hpp"
+#include "../header/alu.hpp"
 
 // Simulation-only SIMD Tile ALU. This model favors readable software flow over
 // synthesizable hardware structure.

@@ -4,7 +4,7 @@
 #include <defhelper.hpp>
 #include <run.hpp>
 
-#include "../../src/header.hpp"
+#include "../../src/header/rename.hpp"
 
 TOP("../../src/core/Rename.hpp");
 PROJECT("../../src");
