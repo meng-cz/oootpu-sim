@@ -10,8 +10,8 @@
 TOP("../../src/lsu/LSU.hpp");
 PROJECT("../../src");
 
-REQUEST_READY(s0LoadRowFire, ARG(LsuLoadRowMeta) meta);
-REQUEST_READY(s0StoreRowFire, ARG(LsuStoreRowMeta) meta);
+REQUEST_READY(s0LoadRowFire, ARG(LsuLoadRowMeta) meta, ARG(TileMask) mask, ARG(bool) masken);
+REQUEST_READY(s0StoreRowFire, ARG(LsuStoreRowMeta) meta, ARG(TileMask) mask, ARG(bool) masken);
 REQUEST(storeMemInput, ARG(LsuStoreMemInput) in);
 REQUEST_READY(busReadResp, ARRAY(LSU_BUS_BANKS), ARG(LsuBusReadResp) resp);
 
@@ -130,6 +130,11 @@ SIMULATION() {
         }
     };
 
+    TileMask no_mask;
+    for (int r = 0; r < TILE_SIZE; ++r) {
+        no_mask[r] = 0;
+    }
+
     sim_reset();
     for (uint64_t addr = 0; addr < 4096; ++addr) {
         uint32_t bank = tpu_phys_addr_to_bank(addr);
@@ -178,7 +183,7 @@ SIMULATION() {
     store_meta.base_addr = 0;
     store_meta.stride_elems = TILE_SIZE;
     store_meta.dtype = DType::DTYPE_UINT16;
-    if (!s0StoreRowFire(store_meta)) {
+    if (!s0StoreRowFire(store_meta, no_mask, false)) {
         fail("store rejected");
     }
     LsuStoreMemInput sin;
@@ -216,7 +221,7 @@ SIMULATION() {
     for (int i = 0; i < 4; ++i) {
         load_meta.rd_pidx[i] = 10 + i;
     }
-    if (!s0LoadRowFire(load_meta)) {
+    if (!s0LoadRowFire(load_meta, no_mask, false)) {
         fail("load rejected");
     }
     for (int i = 0; i < 220 && load_wb_count < 2U; ++i) {

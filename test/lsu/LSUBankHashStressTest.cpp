@@ -10,8 +10,8 @@
 TOP("../../src/lsu/LSU.hpp");
 PROJECT("../../src");
 
-REQUEST_READY(s0LoadRowFire, ARG(LsuLoadRowMeta) meta);
-REQUEST_READY(s0StoreRowFire, ARG(LsuStoreRowMeta) meta);
+REQUEST_READY(s0LoadRowFire, ARG(LsuLoadRowMeta) meta, ARG(TileMask) mask, ARG(bool) masken);
+REQUEST_READY(s0StoreRowFire, ARG(LsuStoreRowMeta) meta, ARG(TileMask) mask, ARG(bool) masken);
 REQUEST(storeMemInput, ARG(LsuStoreMemInput) in);
 REQUEST_READY(busReadResp, ARRAY(LSU_BUS_BANKS), ARG(LsuBusReadResp) resp);
 
@@ -133,6 +133,22 @@ SIMULATION() {
         return uint8_t((scenario * 37U + byte_idx * 53U + row * 7U + col * 11U) & 0xffU);
     };
 
+    auto mask_enabled = [](uint32_t scenario, uint32_t row, uint32_t col) -> bool {
+        return ((scenario + row * 5U + col * 3U) & 3U) != 0U;
+    };
+
+    auto fill_mask = [&](TileMask &mask, uint32_t scenario) {
+        for (uint32_t r = 0; r < TILE_SIZE; ++r) {
+            uint32_t bits = 0;
+            for (uint32_t c = 0; c < TILE_SIZE; ++c) {
+                if (mask_enabled(scenario, r, c)) {
+                    bits |= 1U << c;
+                }
+            }
+            mask[r] = bits;
+        }
+    };
+
     auto fill_store_byte = [&](Tile &tile, uint32_t scenario, uint32_t byte_idx) {
         for (uint32_t r = 0; r < TILE_SIZE; ++r) {
             for (uint32_t c = 0; c < TILE_SIZE; ++c) {
@@ -220,8 +236,19 @@ SIMULATION() {
     };
 
     auto run_case = [&](uint32_t scenario, DType dtype, uint64_t base, uint32_t stride_elems,
-                        bool expect_balanced) {
+                        bool expect_balanced, bool masken) {
         uint32_t bytes = dtype_bytes(dtype);
+        TileMask mask;
+        fill_mask(mask, scenario);
+        for (uint32_t row = 0; row < TILE_SIZE; ++row) {
+            uint64_t row_base = base + uint64_t(row) * uint64_t(stride_elems) *
+                                uint64_t(bytes);
+            for (uint32_t col = 0; col < TILE_SIZE; ++col) {
+                for (uint32_t byte_idx = 0; byte_idx < bytes; ++byte_idx) {
+                    memory[row_base + uint64_t(col) * uint64_t(bytes) + uint64_t(byte_idx)] = 0;
+                }
+            }
+        }
         clear_counts();
         clear_capture();
 
@@ -229,7 +256,7 @@ SIMULATION() {
         store_meta.base_addr = base;
         store_meta.stride_elems = stride_elems;
         store_meta.dtype = dtype;
-        if (!s0StoreRowFire(store_meta)) {
+        if (!s0StoreRowFire(store_meta, mask, masken)) {
             fail("store rejected");
         }
         for (uint32_t byte_idx = 0; byte_idx < bytes; ++byte_idx) {
@@ -258,7 +285,9 @@ SIMULATION() {
                 for (uint32_t byte_idx = 0; byte_idx < bytes; ++byte_idx) {
                     uint64_t addr = row_base + uint64_t(col) * uint64_t(bytes) +
                                     uint64_t(byte_idx);
-                    if (memory[addr] != pattern(scenario, byte_idx, row, col)) {
+                    uint8_t expected = (!masken || mask_enabled(scenario, row, col)) ?
+                                       pattern(scenario, byte_idx, row, col) : 0;
+                    if (memory[addr] != expected) {
                         fail("stored memory layout mismatch");
                     }
                 }
@@ -272,9 +301,9 @@ SIMULATION() {
         load_meta.stride_elems = stride_elems;
         load_meta.dtype = dtype;
         for (int i = 0; i < 4; ++i) {
-            load_meta.rd_pidx[i] = 40 + scenario * 4U + uint32_t(i);
+            load_meta.rd_pidx[i] = 20 + scenario * 4U + uint32_t(i);
         }
-        if (!s0LoadRowFire(load_meta)) {
+        if (!s0LoadRowFire(load_meta, mask, masken)) {
             fail("load rejected");
         }
         for (int i = 0; i < 1024 && load_wb_count < bytes; ++i) {
@@ -293,12 +322,14 @@ SIMULATION() {
             if (!captured_valid[byte_idx]) {
                 fail("missing load writeback byte");
             }
-            if (captured_pidx[byte_idx] != 40U + scenario * 4U + byte_idx) {
+            if (captured_pidx[byte_idx] != 20U + scenario * 4U + byte_idx) {
                 fail("load writeback pidx mismatch");
             }
             for (uint32_t row = 0; row < TILE_SIZE; ++row) {
                 for (uint32_t col = 0; col < TILE_SIZE; ++col) {
-                    if (captured[byte_idx][row][col] != pattern(scenario, byte_idx, row, col)) {
+                    uint8_t expected = (!masken || mask_enabled(scenario, row, col)) ?
+                                       pattern(scenario, byte_idx, row, col) : 0;
+                    if (captured[byte_idx][row][col] != expected) {
                         fail("load byte-plane data mismatch");
                     }
                 }
@@ -334,12 +365,13 @@ SIMULATION() {
                                      DType::DTYPE_UINT32,
                                      "uint32 pathological distribution mismatch");
 
-    run_case(0, DType::DTYPE_UINT8, 0, pathological_stride, true);
-    run_case(1, DType::DTYPE_SINT8, uint64_t(TILE_SIZE), TILE_SIZE * 3, false);
-    run_case(2, DType::DTYPE_UINT16, uint64_t(TILE_SIZE * 2), pathological_stride, true);
-    run_case(3, DType::DTYPE_F16, uint64_t(TILE_SIZE * 10), TILE_SIZE * 5, false);
-    run_case(4, DType::DTYPE_UINT32, uint64_t(TILE_SIZE * 24), pathological_stride, true);
-    run_case(5, DType::DTYPE_F32, uint64_t(TILE_SIZE * 80), TILE_SIZE * 9, false);
+    run_case(0, DType::DTYPE_UINT8, 0, pathological_stride, true, false);
+    run_case(1, DType::DTYPE_SINT8, uint64_t(TILE_SIZE), TILE_SIZE * 3, false, false);
+    run_case(2, DType::DTYPE_UINT16, uint64_t(TILE_SIZE * 2), pathological_stride, true, false);
+    run_case(3, DType::DTYPE_F16, uint64_t(TILE_SIZE * 10), TILE_SIZE * 5, false, false);
+    run_case(4, DType::DTYPE_UINT32, uint64_t(TILE_SIZE * 24), pathological_stride, true, false);
+    run_case(5, DType::DTYPE_F32, uint64_t(TILE_SIZE * 80), TILE_SIZE * 9, false, false);
+    run_case(6, DType::DTYPE_UINT16, uint64_t(TILE_SIZE * 160), pathological_stride, true, true);
 
     std::printf("lsu bank hash stress passed\n");
 }

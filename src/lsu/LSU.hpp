@@ -37,6 +37,8 @@ struct LsuLoadSlotState {
     uint32_t recv_count;
     uint8_t wb_byte;
     LsuLoadRowMeta meta;
+    TileMask mask;
+    bool masken;
     std::array<Tile, 4> data;
 };
 
@@ -50,6 +52,8 @@ struct LsuRespMapEntry {
 bool lsu_store_active;
 bool lsu_store_enqueued;
 LsuStoreRowMeta lsu_store_meta;
+TileMask lsu_store_mask;
+bool lsu_store_masken;
 std::array<Tile, 4> lsu_store_data;
 std::array<bool, 4> lsu_store_byte_valid;
 
@@ -141,9 +145,13 @@ inline void lsu_zero_load_slot(LsuLoadSlotState &slot) {
     slot.writeback_active = false;
     slot.recv_count = 0;
     slot.wb_byte = 0;
+    slot.masken = false;
     slot.meta.base_addr = 0;
     slot.meta.stride_elems = TILE_SIZE;
     slot.meta.dtype = DType::DTYPE_UINT8;
+    for (int r = 0; r < TILE_SIZE; ++r) {
+        slot.mask[r] = 0;
+    }
     for (int i = 0; i < 4; ++i) {
         slot.meta.rd_pidx[i] = 0;
         lsu_clear_tile(slot.data[i]);
@@ -153,9 +161,13 @@ inline void lsu_zero_load_slot(LsuLoadSlotState &slot) {
 inline void lsu_reset_sw() {
     lsu_store_active = false;
     lsu_store_enqueued = false;
+    lsu_store_masken = false;
     lsu_store_meta.base_addr = 0;
     lsu_store_meta.stride_elems = TILE_SIZE;
     lsu_store_meta.dtype = DType::DTYPE_UINT8;
+    for (int r = 0; r < TILE_SIZE; ++r) {
+        lsu_store_mask[r] = 0;
+    }
     for (int i = 0; i < 4; ++i) {
         lsu_store_byte_valid[i] = false;
         lsu_clear_tile(lsu_store_data[i]);
@@ -269,10 +281,12 @@ inline void lsu_enqueue_store_requests() {
             e.addr = tpu_phys_addr_to_bank_addr(addr);
             for (uint32_t local = 0; local < elems_per_chunk; ++local) {
                 uint32_t col = chunk_idx * elems_per_chunk + local;
+                bool elem_enabled = !lsu_store_masken ||
+                                    (((lsu_store_mask[row].template to<uint32_t>()) >> col) & 1U) != 0U;
                 for (uint32_t byte_idx = 0; byte_idx < bytes; ++byte_idx) {
                     uint32_t off = local * bytes + byte_idx;
                     e.data[off] = lsu_store_data[byte_idx][row][col];
-                    e.byte_enable[off] = 1;
+                    e.byte_enable[off] = elem_enabled ? 1 : 0;
                 }
             }
             lsu_writeq_push(bank, e);
@@ -327,7 +341,8 @@ inline void lsu_issue_bus_bank() {
 
 }
 
-SERVICE_READY(s0LoadRowFire, lsu_load_ready(), ARG(LsuLoadRowMeta) meta) {
+SERVICE_READY(s0LoadRowFire, lsu_load_ready(), ARG(LsuLoadRowMeta) meta,
+              ARG(TileMask) mask, ARG(bool) masken) {
     assert(lsu_aligned_meta(meta.base_addr, meta.stride_elems, meta.dtype));
     int slot_id = lsu_find_free_slot();
     assert(slot_id >= 0);
@@ -335,14 +350,19 @@ SERVICE_READY(s0LoadRowFire, lsu_load_ready(), ARG(LsuLoadRowMeta) meta) {
     lsu_zero_load_slot(slot);
     slot.valid = true;
     slot.meta = meta;
+    slot.mask = mask;
+    slot.masken = masken;
     lsu_enqueue_load_requests(uint32_t(slot_id));
 }
 
-SERVICE_READY(s0StoreRowFire, lsu_store_ready(), ARG(LsuStoreRowMeta) meta) {
+SERVICE_READY(s0StoreRowFire, lsu_store_ready(), ARG(LsuStoreRowMeta) meta,
+              ARG(TileMask) mask, ARG(bool) masken) {
     assert(lsu_aligned_meta(meta.base_addr, meta.stride_elems, meta.dtype));
     lsu_store_active = true;
     lsu_store_enqueued = false;
     lsu_store_meta = meta;
+    lsu_store_mask = mask;
+    lsu_store_masken = masken;
     for (int i = 0; i < 4; ++i) {
         lsu_store_byte_valid[i] = false;
         lsu_clear_tile(lsu_store_data[i]);
@@ -375,9 +395,11 @@ SERVICE_READY(busReadResp, true, ARRAY(LSU_BUS_BANKS), ARG(LsuBusReadResp) resp)
     uint32_t elems_per_chunk = lsu_elements_per_bus_chunk(slot.meta.dtype);
     for (uint32_t local = 0; local < elems_per_chunk; ++local) {
         uint32_t col = map.byte_idx * elems_per_chunk + local;
+        bool elem_enabled = !slot.masken ||
+                            (((slot.mask[map.row].template to<uint32_t>()) >> col) & 1U) != 0U;
         for (uint32_t byte_idx = 0; byte_idx < bytes; ++byte_idx) {
             uint32_t off = local * bytes + byte_idx;
-            slot.data[byte_idx][map.row][col] = resp.data[off];
+            slot.data[byte_idx][map.row][col] = elem_enabled ? resp.data[off] : 0;
         }
     }
     slot.recv_count++;
