@@ -131,6 +131,30 @@ SIMULATION() {
     };
 
     sim_reset();
+    for (uint64_t addr = 0; addr < 4096; ++addr) {
+        uint32_t bank = tpu_phys_addr_to_bank(addr);
+        uint64_t bank_addr = tpu_phys_addr_to_bank_addr(addr);
+        uint64_t roundtrip = tpu_bank_addr_to_phys_addr(bank, bank_addr);
+        if (roundtrip != addr) {
+            fail("bank xor hash roundtrip mismatch");
+        }
+    }
+    {
+        uint32_t counts[LSU_BUS_BANKS];
+        for (uint32_t b = 0; b < LSU_BUS_BANKS; ++b) {
+            counts[b] = 0;
+        }
+        uint64_t stride_bytes = uint64_t(TILE_SIZE * LSU_BUS_BANKS);
+        for (uint32_t row = 0; row < TILE_SIZE; ++row) {
+            uint64_t addr = uint64_t(row) * stride_bytes;
+            counts[tpu_phys_addr_to_bank(addr)]++;
+        }
+        for (uint32_t b = 0; b < LSU_BUS_BANKS; ++b) {
+            if (counts[b] != uint32_t(TILE_SIZE / LSU_BUS_BANKS)) {
+                fail("bank xor hash stride distribution mismatch");
+            }
+        }
+    }
     for (int i = 0; i < 8192; ++i) {
         memory[i] = 0;
     }
